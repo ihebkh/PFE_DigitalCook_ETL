@@ -3,22 +3,19 @@ import json
 import psycopg2
 from pymongo import MongoClient
 
-# Connexion MongoDB
 def get_mongodb_connection():
     MONGO_URI = "mongodb+srv://iheb:Kt7oZ4zOW4Fg554q@cluster0.5zmaqup.mongodb.net/"
     MONGO_DB = "PowerBi"
-    MONGO_COLLECTION = "frontusers"  # Adapter au nom réel de la collection
+    MONGO_COLLECTION = "frontusers" 
 
     client = MongoClient(MONGO_URI)
     mongo_db = client[MONGO_DB]
     collection = mongo_db[MONGO_COLLECTION]
     return client, mongo_db, collection
 
-# Connexion PostgreSQL
 def get_postgres_connection():
     return psycopg2.connect(dbname="DW_DigitalCook", user='postgres', password='admin', host='localhost', port='5432')
 
-# Générer un code unique pour permis (PERM01, PERM02, ...)
 def get_next_permis_code():
     conn = get_postgres_connection()
     cur = conn.cursor()
@@ -28,14 +25,12 @@ def get_next_permis_code():
     conn.close()
     return f"PERM{str(count).zfill(2)}"
 
-# Extraction des permis depuis MongoDB
 def extract_from_mongodb():
     client, _, collection = get_mongodb_connection()
     mongo_data = list(collection.find({}, {"_id": 0}))  
     client.close()
     return mongo_data
 
-# Transformation des données (Suppression des doublons et espaces)
 def transform_data(mongo_data):
     seen_categories = set()
     transformed_data = []
@@ -43,7 +38,7 @@ def transform_data(mongo_data):
     for record in mongo_data:
         permis_list = record.get("permisConduire", [])
         for permis in permis_list:
-            category = permis.strip()  # Supprimer les espaces
+            category = permis.strip()
             if category and category not in seen_categories:
                 seen_categories.add(category)
                 transformed_data.append({
@@ -52,7 +47,6 @@ def transform_data(mongo_data):
                 })
     return transformed_data
 
-# Chargement des permis dans PostgreSQL
 def load_into_postgres(data):
     conn = get_postgres_connection()
     cur = conn.cursor()
@@ -75,7 +69,6 @@ def load_into_postgres(data):
     cur.close()
     conn.close()
 
-# Fonction principale
 def main():
     print("--- Extraction et chargement des permis de conduire ---")
     raw_data = extract_from_mongodb()
