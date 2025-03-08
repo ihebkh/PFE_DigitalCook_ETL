@@ -16,15 +16,15 @@ def get_mongodb_connection():
 def get_postgres_connection():
     return psycopg2.connect(dbname="DW_DigitalCook", user='postgres', password='admin', host='localhost', port='5432')
 
-def get_existing_competence_count():
-    """ Récupère le nombre actuel de compétences déjà stockées. """
+def get_existing_competences():
+    """ Récupère les compétences existantes dans la base de données. """
     conn = get_postgres_connection()
     cur = conn.cursor()
-    cur.execute("SELECT COUNT(*) FROM dim_competence")
-    count = cur.fetchone()[0]
+    cur.execute("SELECT experience_name FROM dim_competence")
+    competences = {row[0] for row in cur.fetchall()}
     cur.close()
     conn.close()
-    return count
+    return competences
 
 def extract_from_mongodb():
     client, _, collection = get_mongodb_connection()
@@ -32,10 +32,9 @@ def extract_from_mongodb():
     client.close()
     return mongo_data
 
-def transform_data(mongo_data):
-    existing_count = get_existing_competence_count()
-    seen_competences = set()
+def transform_data(mongo_data, existing_competences):
     transformed_data = []
+    competence_code_counter = len(existing_competences)  # Commencer à partir du nombre existant
 
     for record in mongo_data:
         experiences = record.get("profile", {}).get("experiences", [])
@@ -43,14 +42,15 @@ def transform_data(mongo_data):
             competences = experience.get("competances", [])
             for competence in competences:
                 competence = competence.strip() if competence else None
-                if competence and competence not in seen_competences:
-                    seen_competences.add(competence)
-                    existing_count += 1  
+                if competence and competence not in existing_competences:
+                    competence_code_counter += 1
+                    new_competence_code = f"COMP{str(competence_code_counter).zfill(2)}"
                     transformed_data.append({
-                        "competence_code": f"COMP{str(existing_count).zfill(2)}",
+                        "competence_code": new_competence_code,
                         "experience_name": competence
                     })
-    
+                    existing_competences.add(competence)
+
     print("Données transformées :", transformed_data)
     return transformed_data
 
@@ -62,19 +62,27 @@ def load_into_postgres(data):
     conn = get_postgres_connection()
     cur = conn.cursor()
     
+    # Requête d'insertion si la compétence n'existe pas encore
     insert_query = """
     INSERT INTO dim_competence (competence_code, experience_name)
-    VALUES (%s, %s)
-    ON CONFLICT (competence_code) DO UPDATE SET 
-        experience_name = EXCLUDED.experience_name
+    SELECT %s, %s
+    WHERE NOT EXISTS (SELECT 1 FROM dim_competence WHERE experience_name = %s)
+    """
+    
+    # Requête de mise à jour si la compétence existe déjà
+    update_query = """
+    UPDATE dim_competence
+    SET experience_name = %s
+    WHERE experience_name = %s
     """
     
     for record in data:
-        values = (
-            record["competence_code"],
-            record["experience_name"]
-        )
-        cur.execute(insert_query, values)
+        # Essayer d'insérer la compétence si elle n'existe pas
+        cur.execute(insert_query, (record["competence_code"], record["experience_name"], record["experience_name"]))
+        
+        # Si la compétence existe déjà (après l'insertion échouée), on la met à jour
+        if cur.rowcount == 0:  # Si aucune ligne n'est insérée, alors la compétence existe déjà
+            cur.execute(update_query, (record["experience_name"], record["experience_name"]))
     
     conn.commit()
     cur.close()
@@ -83,7 +91,11 @@ def load_into_postgres(data):
 def main():
     print("--- Extraction et chargement des compétences ---")
     raw_data = extract_from_mongodb()
-    transformed_data = transform_data(raw_data)
+    
+    existing_competences = get_existing_competences()  # Compétences déjà présentes dans la base
+    
+    transformed_data = transform_data(raw_data, existing_competences)
+    
     if transformed_data:
         load_into_postgres(transformed_data)
         print("Données insérées avec succès dans PostgreSQL.")

@@ -84,7 +84,7 @@ def main():
     print("--- Extraction et chargement des visas ---")
     raw_data = extract_from_mongodb()
     if not raw_data:
-        print("⚠️ Aucune donnée trouvée dans MongoDB.")
+        print(" Aucune donnée trouvée dans MongoDB.")
         return
 
     transformed_data = transform_data(raw_data)
@@ -93,7 +93,7 @@ def main():
         load_into_postgres(transformed_data)
         print(" Données insérées/mises à jour avec succès dans PostgreSQL.")
     else:
-        print("⚠️ Aucune donnée de visa à insérer.")
+        print(" Aucune donnée de visa à insérer.")
 
 if __name__ == "__main__":
     main()

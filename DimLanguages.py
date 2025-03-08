@@ -21,10 +21,12 @@ def get_postgres_connection():
     )
 
 def generate_langue_code(existing_codes):
-    if not existing_codes:
-        return "LANG001"  
+    valid_codes = [code for code in existing_codes if isinstance(code, str) and code.startswith("LANG")]
+    
+    if not valid_codes:
+        return "LANG001"
     else:
-        last_number = max(int(code.replace("LANG", "")) for code in existing_codes)
+        last_number = max(int(code.replace("LANG", "")) for code in valid_codes)
         new_number = last_number + 1
         return f"LANG{str(new_number).zfill(3)}"
 
@@ -34,7 +36,6 @@ def extract_from_mongodb():
 
     languages = []
     existing_labels = set()  
-    
     for user in mongo_data:
         if isinstance(user, dict) and "profile" in user and isinstance(user["profile"], dict):
             language_list = user["profile"].get("languages", [])
@@ -68,9 +69,13 @@ def load_into_postgres(data):
     insert_query = """
     INSERT INTO dim_languages (langue_code, label, level)
     VALUES (%s, %s, %s)
-    ON CONFLICT (langue_code) DO UPDATE SET
-        level = EXCLUDED.level
     RETURNING langue_code;
+    """
+
+    update_query = """
+    UPDATE dim_languages
+    SET level = %s
+    WHERE langue_code = %s;
     """
 
     for record in data:
@@ -83,8 +88,16 @@ def load_into_postgres(data):
             record["label"],
             record["level"],
         )
-        print(f"✅ Insertion / Mise à jour : {values}")  
-        cur.execute(insert_query, values)
+        cur.execute("""
+        SELECT 1 FROM dim_languages
+        WHERE label = %s AND level = %s
+        """, (record["label"], record["level"]))
+        if cur.fetchone():
+            print(f" Mise à jour de l'intérêt : {values}")
+            cur.execute(update_query, (record["level"], record["langue_code"]))
+        else:
+            print(f" Insertion de l'intérêt : {values}")
+            cur.execute(insert_query, values)
 
     conn.commit()
     cur.close()

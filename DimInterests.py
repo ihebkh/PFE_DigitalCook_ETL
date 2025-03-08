@@ -1,5 +1,6 @@
 import psycopg2
 from pymongo import MongoClient
+import re  # Pour filtrer les codes valides
 
 def get_mongodb_connection():
     MONGO_URI = "mongodb+srv://iheb:Kt7oZ4zOW4Fg554q@cluster0.5zmaqup.mongodb.net/"
@@ -21,10 +22,13 @@ def get_postgres_connection():
     )
 
 def generate_interests_code(existing_codes):
-    if not existing_codes:
+    # Filtrer les codes valides (par exemple, INT001, INT002, etc.)
+    valid_codes = [code for code in existing_codes if re.match(r"^INT\d{3}$", code)]
+    
+    if not valid_codes:
         return "INT001"
     else:
-        last_number = max(int(code.replace("INT", "")) for code in existing_codes)
+        last_number = max(int(code.replace("INT", "")) for code in valid_codes)
         new_number = last_number + 1
         return f"INT{str(new_number).zfill(3)}"
 
@@ -52,6 +56,11 @@ def load_into_postgres(data):
     conn = get_postgres_connection()
     cur = conn.cursor()
 
+    # Récupérer les intérêts déjà existants dans la base de données
+    cur.execute("SELECT interests FROM Dim_interests")
+    existing_interests = {row[0] for row in cur.fetchall()}
+
+    # Récupérer les codes existants
     cur.execute("SELECT interestsCode FROM Dim_interests")
     existing_codes = {row[0] for row in cur.fetchall()}
 
@@ -61,17 +70,27 @@ def load_into_postgres(data):
     ON CONFLICT (interestsCode) DO NOTHING;
     """
 
+    update_query = """
+    UPDATE Dim_interests
+    SET interests = %s
+    WHERE interestsCode = %s;
+    """
+
     for record in data:
+        # Générer un code unique pour l'intérêt
         if record["interestsCode"] is None:
             record["interestsCode"] = generate_interests_code(existing_codes)
             existing_codes.add(record["interestsCode"])
 
-        values = (
-            record["interestsCode"],
-            record["interests"],
-        )
-        print(f" Insertion / Mise à jour : {values}")
-        cur.execute(insert_query, values)
+        # Vérifier si l'intérêt existe déjà
+        if record["interests"] in existing_interests:
+            print(f" Mise à jour de l'intérêt : {record['interests']}")
+            # Mettre à jour l'intérêt existant
+            cur.execute(update_query, (record["interests"], record["interestsCode"]))
+        else:
+            print(f" Insertion de l'intérêt : {record['interests']}")
+            # Insérer un nouvel intérêt
+            cur.execute(insert_query, (record["interestsCode"], record["interests"]))
 
     conn.commit()
     cur.close()

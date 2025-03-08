@@ -1,7 +1,6 @@
 import psycopg2
 from pymongo import MongoClient
 
-# ✅ Connexion à MongoDB
 def get_mongodb_connection():
     MONGO_URI = "mongodb+srv://iheb:Kt7oZ4zOW4Fg554q@cluster0.5zmaqup.mongodb.net/"
     MONGO_DB = "PowerBi"
@@ -12,7 +11,6 @@ def get_mongodb_connection():
     collection = mongo_db[MONGO_COLLECTION]
     return client, mongo_db, collection
 
-# ✅ Connexion à PostgreSQL
 def get_postgres_connection():
     return psycopg2.connect(
         dbname="DW_DigitalCook",
@@ -22,33 +20,27 @@ def get_postgres_connection():
         port="5432"
     )
 
-# ✅ Génération d'un code unique pour `certificationCode`
 def generate_certification_code(existing_codes):
     if not existing_codes:
-        return "CERT001"  # Premier code si la table est vide
+        return "CERT001"  
     else:
         last_number = max(int(code.replace("CERT", "")) for code in existing_codes)
         new_number = last_number + 1
         return f"CERT{str(new_number).zfill(3)}"
 
-# ✅ Fonction pour valider `year` et `month`
 def validate_year_month(year, month):
-    # Vérifier si `year` est un nombre à 4 chiffres (ex: "2024")
     if not (year.isdigit() and len(year) == 4):
-        year = None  # Mettre `None` si non valide
-
-    # Vérifier si `month` est entre "01" et "12"
+        year = None 
     if not (month.isdigit() and 1 <= int(month) <= 12):
-        month = None  # Mettre `None` si non valide
+        month = None
 
     return year, month
 
-# ✅ Extraction des certifications depuis MongoDB
 def extract_from_mongodb():
     client, _, collection = get_mongodb_connection()
     mongo_data = collection.find({}, {"_id": 0, "profile.certifications": 1})
 
-    certifications = set()  # Utilisation d'un set pour éviter les doublons
+    certifications = set() 
 
     for user in mongo_data:
         if isinstance(user, dict) and "profile" in user and isinstance(user["profile"], dict):
@@ -60,26 +52,27 @@ def extract_from_mongodb():
                         nom = certif.get("nomCertification", "").strip()
                         year = certif.get("year", "").strip()
                         month = certif.get("month", "").strip()
-
-                        # Validation des dates
                         year, month = validate_year_month(year, month)
 
-                        if nom:  # Vérifier qu'il y a bien un nom
+                        if nom:
                             certifications.add((nom, year, month))
 
     client.close()
     
-    print("✅ Certifications extraites :", certifications)  # Debug
+    print(" Certifications extraites :", certifications)
     return [{"certificationCode": None, "nom": c[0], "year": c[1], "month": c[2]} for c in certifications]
 
-# ✅ Chargement des données dans PostgreSQL
 def load_into_postgres(data):
     conn = get_postgres_connection()
     cur = conn.cursor()
+    cur.execute("SELECT certificationCode, nom, year, month FROM Dim_certification")
+    existing_certifications = {(row[1], row[2], row[3]): row[0] for row in cur.fetchall()}
 
-    # Récupérer les `certificationCode` existants pour l'incrémentation
-    cur.execute("SELECT certificationCode FROM Dim_certification")
-    existing_codes = {row[0] for row in cur.fetchall()}
+    update_query = """
+    UPDATE Dim_certification
+    SET certificationCode = %s, nom = %s, year = %s, month = %s
+    WHERE nom = %s AND year = %s AND month = %s;
+    """
 
     insert_query = """
     INSERT INTO Dim_certification (certificationCode, nom, year, month)
@@ -88,24 +81,37 @@ def load_into_postgres(data):
     """
 
     for record in data:
-        if record["certificationCode"] is None:  # Générer un code uniquement si nécessaire
-            record["certificationCode"] = generate_certification_code(existing_codes)
-            existing_codes.add(record["certificationCode"])  # Ajouter à l'ensemble pour éviter les doublons
+        if record["certificationCode"] is None:
+            record["certificationCode"] = generate_certification_code(existing_certifications.values())
+            existing_certifications[(record["nom"], record["year"], record["month"])] = record["certificationCode"]
+        existing_code = existing_certifications.get((record["nom"], record["year"], record["month"]))
 
-        values = (
-            record["certificationCode"],
-            record["nom"],
-            record["year"],  # Déjà validé
-            record["month"],  # Déjà validé
-        )
-        print(f"✅ Insertion / Mise à jour : {values}")  # Debug
-        cur.execute(insert_query, values)
+        if existing_code:
+            values = (
+                record["certificationCode"],
+                record["nom"],
+                record["year"],
+                record["month"],
+                record["nom"],
+                record["year"],
+                record["month"],
+            )
+            print(f" Mise à jour : {values}")
+            cur.execute(update_query, values)
+        else:
+            values = (
+                record["certificationCode"],
+                record["nom"],
+                record["year"],
+                record["month"],
+            )
+            print(f" Insertion : {values}")
+            cur.execute(insert_query, values)
 
     conn.commit()
     cur.close()
     conn.close()
 
-# ✅ Pipeline principal
 def main():
     print("--- Extraction et chargement des certifications ---")
     
@@ -113,9 +119,9 @@ def main():
     
     if raw_data:
         load_into_postgres(raw_data)
-        print("✅ Données insérées/mises à jour avec succès dans PostgreSQL.")
+        print(" Données insérées/mises à jour avec succès dans PostgreSQL.")
     else:
-        print("⚠️ Aucune donnée à insérer.")
+        print(" Aucune donnée à insérer.")
 
 if __name__ == "__main__":
     main()
