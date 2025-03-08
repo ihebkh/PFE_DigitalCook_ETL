@@ -41,15 +41,12 @@ def extract_from_mongodb():
     mongo_data = collection.find({}, {"_id": 0, "profile.proffessionalContacts": 1})
     
     contacts = []
-    existing_entries = set()  # Ensemble pour éviter les doublons
+    existing_entries = set()
     
     for user in mongo_data:
         if "profile" in user and "proffessionalContacts" in user["profile"]:
             for contact in user["profile"]["proffessionalContacts"]:
-                # Créer une clé unique basée sur (firstname, lastname, company)
                 contact_key = (contact.get("firstName"), contact.get("lastName"), contact.get("company"))
-                
-                # Si la clé n'existe pas déjà, l'ajouter à la liste des contacts
                 if contact_key not in existing_entries:
                     contacts.append({
                         "firstname": contact.get("firstName"),
@@ -57,11 +54,11 @@ def extract_from_mongodb():
                         "company": contact.get("company"),
                         "contact_code": None
                     })
-                    existing_entries.add(contact_key)  # Ajouter la clé à l'ensemble
+                    existing_entries.add(contact_key)
     
     client.close()
     
-    print("Contacts extraits :", contacts)  # Afficher les contacts sans doublons
+    print("Contacts extraits :", contacts)
     return contacts
 
 def transform_data(mongo_data):
@@ -75,15 +72,15 @@ def transform_data(mongo_data):
     
     conn.close()
 
-    contact_counter = 1  # Compteur pour générer les codes de contact
+    contact_counter = 1
 
     for record in mongo_data:
         contact_key = f"{record['firstname']}_{record['lastname']}"
         
         if contact_key in existing_contacts:
-            record["contact_code"] = existing_contacts[contact_key]  # Utiliser le code existant
+            record["contact_code"] = existing_contacts[contact_key]
         else:
-            record["contact_code"] = f"CONTACT{str(contact_counter).zfill(2)}"  # Nouveau code de contact
+            record["contact_code"] = f"CONTACT{str(contact_counter).zfill(2)}"
             contact_counter += 1
         
         transformed_contacts.append(record)
@@ -120,11 +117,11 @@ def load_into_postgres(data):
 def main():
     print("--- Extraction et chargement des contacts professionnels ---")
     
-    raw_data = extract_from_mongodb()  # Extraire les données de MongoDB
-    transformed_data = transform_data(raw_data)  # Transformer les données pour correspondre à la structure de PostgreSQL
+    raw_data = extract_from_mongodb()
+    transformed_data = transform_data(raw_data)
     
     if transformed_data:
-        load_into_postgres(transformed_data)  # Charger les données dans PostgreSQL
+        load_into_postgres(transformed_data)
         print("Données insérées/mises à jour avec succès dans PostgreSQL.")
     else:
         print("Aucune donnée à insérer.")

@@ -34,7 +34,7 @@ def extract_from_mongodb():
 
 def transform_data(mongo_data, existing_competences):
     transformed_data = []
-    competence_code_counter = len(existing_competences)  # Commencer à partir du nombre existant
+    competence_code_counter = len(existing_competences)
 
     for record in mongo_data:
         experiences = record.get("profile", {}).get("experiences", [])
@@ -61,15 +61,11 @@ def load_into_postgres(data):
     
     conn = get_postgres_connection()
     cur = conn.cursor()
-    
-    # Requête d'insertion si la compétence n'existe pas encore
     insert_query = """
     INSERT INTO dim_competence (competence_code, experience_name)
     SELECT %s, %s
     WHERE NOT EXISTS (SELECT 1 FROM dim_competence WHERE experience_name = %s)
     """
-    
-    # Requête de mise à jour si la compétence existe déjà
     update_query = """
     UPDATE dim_competence
     SET experience_name = %s
@@ -77,11 +73,8 @@ def load_into_postgres(data):
     """
     
     for record in data:
-        # Essayer d'insérer la compétence si elle n'existe pas
         cur.execute(insert_query, (record["competence_code"], record["experience_name"], record["experience_name"]))
-        
-        # Si la compétence existe déjà (après l'insertion échouée), on la met à jour
-        if cur.rowcount == 0:  # Si aucune ligne n'est insérée, alors la compétence existe déjà
+        if cur.rowcount == 0:
             cur.execute(update_query, (record["experience_name"], record["experience_name"]))
     
     conn.commit()
@@ -92,7 +85,7 @@ def main():
     print("--- Extraction et chargement des compétences ---")
     raw_data = extract_from_mongodb()
     
-    existing_competences = get_existing_competences()  # Compétences déjà présentes dans la base
+    existing_competences = get_existing_competences()
     
     transformed_data = transform_data(raw_data, existing_competences)
     

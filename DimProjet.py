@@ -30,7 +30,7 @@ def get_existing_projects():
     conn = get_postgres_connection()
     cur = conn.cursor()
     cur.execute("SELECT nom_projet, entreprise, code_projet FROM dim_projet")
-    existing_projects = {(row[0], row[1]): row[2] for row in cur.fetchall()}  # Dictionnaire avec (nom_projet, entreprise) comme clé
+    existing_projects = {(row[0], row[1]): row[2] for row in cur.fetchall()}
     cur.close()
     conn.close()
     return existing_projects
@@ -76,14 +76,13 @@ def transform_data(mongo_data, existing_projects):
     unique_projects = {}
 
     for record in mongo_data:
-        key = (record["nom_projet"], record["entreprise"])  # Key to identify duplicate projects
+        key = (record["nom_projet"], record["entreprise"])
         
-        # Check if the project exists already
         if key in existing_projects:
-            record["code_projet"] = existing_projects[key]  # Use existing code if found
+            record["code_projet"] = existing_projects[key] 
         else:
-            new_code = generate_project_code(existing_projects.values())  # Generate new code based on existing ones
-            existing_projects[key] = new_code  # Add new project to the existing projects dict
+            new_code = generate_project_code(existing_projects.values()) 
+            existing_projects[key] = new_code
             record["code_projet"] = new_code
 
         unique_projects[key] = record
@@ -127,7 +126,7 @@ def main():
     print("--- Extraction et chargement des projets ---")
     
     raw_data = extract_from_mongodb()
-    existing_projects = get_existing_projects()  # Get existing projects from DB
+    existing_projects = get_existing_projects()
     transformed_data = transform_data(raw_data, existing_projects)
     
     if transformed_data:
