@@ -11,9 +11,14 @@ def get_mongodb_connection():
     collection = mongo_db[MONGO_COLLECTION]
     return collection
 
-def generate_unique_code(experience_pk):
-    # We use the experience_pk to create a unique code for each experience
-    return f"CODE{str(experience_pk).zfill(4)}"
+def generate_code_experience(existing_codes):
+    # On génère un code basé sur l'incrémentation des codes existants
+    if not existing_codes:
+        return "CODE0001"
+    else:
+        last_code = max([int(code[4:]) for code in existing_codes if code.startswith("CODE")], default=0)
+        new_code = last_code + 1
+        return f"CODE{str(new_code).zfill(4)}"
 
 def extract_experiences_from_mongo():
     collection = get_mongodb_connection()
@@ -24,28 +29,34 @@ def extract_experiences_from_mongo():
     # Récupérer tous les utilisateurs
     users = collection.find()
 
-    experience_pk = 1  # Start with 1 for experience_pk
+    # Liste pour gérer les codes des expériences déjà affectés
+    existing_codes = []
 
     for user in users:
         # Rechercher des expériences dans le champ "profile"
         if 'profile' in user:
             profile = user['profile']
             if 'experiences' in profile:
+                # Générer un code_experience pour cet utilisateur
+                code_experience = generate_code_experience(existing_codes)
+                existing_codes.append(code_experience)  # Ajouter ce code à la liste des codes déjà utilisés
+                
                 for experience in profile['experiences']:
-                    # Generate a unique code for each experience
-                    code_experience = generate_unique_code(experience_pk)
-                    experience_pk += 1  # Increment the experience_pk for the next experience
-                    
                     # Vérification si l'expérience est un dictionnaire ou une chaîne de caractères
                     if isinstance(experience, dict):  # Si c'est un dictionnaire
+                        du_year = experience.get('du', {}).get('year', 'N/A')
+                        du_month = experience.get('du', {}).get('month', 'N/A')
+                        au_year = experience.get('au', {}).get('year', 'N/A')
+                        au_month = experience.get('au', {}).get('month', 'N/A')
+                        
                         experiences.append({
                             "code_experience": code_experience,  # Ajouter le code d'expérience
                             "role": experience.get("role", "N/A"),
                             "entreprise": experience.get("entreprise", "N/A"),
-                            "du_year": experience.get("du", {}).get("year", "N/A"),
-                            "du_month": experience.get("du", {}).get("month", "N/A"),
-                            "au_year": experience.get("au", {}).get("year", "N/A"),
-                            "au_month": experience.get("au", {}).get("month", "N/A"),
+                            "du_year": du_year,
+                            "du_month": du_month,
+                            "au_year": au_year,
+                            "au_month": au_month,
                         })
                     elif isinstance(experience, str):  # Si c'est une chaîne de caractères
                         experiences.append({
@@ -60,7 +71,6 @@ def extract_experiences_from_mongo():
     
     return experiences
 
-# Fonction pour insérer uniquement les codes d'expérience dans PostgreSQL
 def insert_experiences_into_postgres(experiences):
     # Connexion à la base de données PostgreSQL
     conn = psycopg2.connect(
@@ -83,14 +93,12 @@ def insert_experiences_into_postgres(experiences):
 
     # Insertion des expériences (en tenant compte des champs nécessaires uniquement)
     for exp in experiences:
-        # Vérifier que les champs essentiels sont valides
-        if exp["code_experience"] and exp["role"] != "N/A" and exp["entreprise"] != "N/A":
-            values = (
-                exp["code_experience"],  # codeexperience
-                exp["role"],              # role
-                exp["entreprise"],        # entreprise
-            )
-            cur.execute(insert_query, values)
+        values = (
+            exp["code_experience"],  # codeexperience
+            exp["role"],              # role
+            exp["entreprise"],        # entreprise
+        )
+        cur.execute(insert_query, values)
 
     # Commit des modifications et fermeture de la connexion
     conn.commit()
@@ -112,3 +120,6 @@ for experience in experiences:
 
 # Insertion dans PostgreSQL
 insert_experiences_into_postgres(experiences)
+
+# Insertion ou mise à jour dans PostgreSQL
+
